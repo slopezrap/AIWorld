@@ -1,0 +1,19 @@
+{
+  "product": "salarios",
+  "freshness": "py",
+  "query_template": "salarios {provider} {country_name} {date}",
+  "countries": {
+    "ES": {
+      "providers": ["H&M", "Zara", "Primark", "Mango", "Decathlon"],
+      "language": "es"
+    },
+    "PT": {
+      "providers": ["H&M", "Zara", "Primark"],
+      "language": "pt"
+    },
+    "FR": {
+      "providers": ["H&M", "Zara", "Primark", "Decathlon"],
+      "language": "fr"
+    }
+  }
+}

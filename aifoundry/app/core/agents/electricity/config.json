@@ -1,0 +1,21 @@
+{
+  "product": "electricidad",
+  "freshness": "pw",
+  "query_template": "precio electricidad {provider} {country_name} {date}",
+  "countries": {
+    "ES": {
+      "providers": ["Endesa", "Iberdrola", "Naturgy"],
+      "language": "es"
+    },
+    "PT": {
+      "providers": ["EDP", "Galp", "Endesa"],
+      "language": "pt"
+    },
+    "FR": {
+      "providers": ["EDF", "Engie", "TotalEnergies"],
+      "language": "fr"
+    }
+  },
+  "extraction_prompt": "Para electricidad, extrae TARIFAS y PRECIOS de cada URL.\n\nPara cada tarifa encontrada:\n- Proveedor (Endesa, Iberdrola, etc)\n- Tipo (Fija | 3 períodos | Indexada | PVPC)\n- Descripción\n- Fuente URL\n- Término de energía: precio €/kWh\n- Término de potencia: precio €/kW (valle y punta-llano)\n- Tramos horarios si aplica (punta/llano/valle con horarios y precios)\n\nTIPOS DE TARIFAS A IDENTIFICAR:\n1. PVPC (regulado): precio por horas, incluir precio medio/mínimo/máximo del día\n2. Tarifas FIJAS: precio único €/kWh + potencia €/kW\n3. Tarifas 3 PERÍODOS: precio punta/llano/valle €/kWh + potencia + horarios\n4. Tarifas INDEXADAS: OMIE + margen comercializadora",
+  "validation_prompt": "Validaciones específicas de electricidad:\n✓ Rango de precios válido: 0.01 - 1.00 €/kWh (fuera → sospechoso)\n✓ Unidades correctas: €/kWh (energía) o €/kW/año (potencia)\n✓ PVPC: si aparece, debe tener datos horarios\n✓ Tramos: si tiene discriminación horaria, debe tener punta/llano/valle\n✓ Proveedor: si se especificó, debe aparecer en tarifas\n\nCRITERIOS:\n- ✅ VÁLIDO: ≥2 tarifas, precios en rango, proveedor OK\n- ⚠️ PARCIAL: 1 tarifa o proveedor no encontrado\n- ❌ INVÁLIDO: 0 tarifas o precios fuera de rango"
+}

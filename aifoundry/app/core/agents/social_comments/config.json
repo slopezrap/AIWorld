@@ -1,0 +1,19 @@
+{
+  "product": "comentarios en redes sociales",
+  "freshness": "py",
+  "query_template": "\"{person_name}\" {social_network} comentarios",
+  "social_networks": ["Instagram", "X", "Facebook", "LinkedIn", "TikTok"],
+  "countries": {
+    "ES": {
+      "language": "es"
+    },
+    "PT": {
+      "language": "pt"
+    },
+    "FR": {
+      "language": "fr"
+    }
+  },
+  "extraction_prompt": "REGLA CRÍTICA: Solo extrae datos de la persona EXACTA que se busca. Si el nombre completo no coincide EXACTAMENTE, DESCARTA ese resultado.\n\nPor ejemplo, si se busca \"Sergio López Rapado\":\n- ✅ Sergio López Rapado → CORRECTO, extraer\n- ❌ Sergio López Ferrero → INCORRECTO, descartar\n- ❌ Sergio López Barranco → INCORRECTO, descartar\n- ❌ Sergio Rapado (sin López) → INCORRECTO, descartar\n- ❌ Cualquier otro Sergio López → INCORRECTO, descartar\n\nDebe coincidir nombre Y apellidos COMPLETOS.\n\nPara cada comentario/publicación de la persona EXACTA:\n- Red social (Instagram, X, Facebook, LinkedIn, TikTok)\n- Nombre de usuario / perfil\n- Fecha del comentario (si disponible)\n- Contenido del comentario o publicación (texto completo)\n- URL del post o perfil\n- Contexto: ¿es un comentario en un post ajeno, un post propio, una respuesta?\n- Likes/interacciones (si disponible)\n\nSi NO encuentras NINGÚN resultado de la persona exacta, indica claramente: \"No se encontraron comentarios de [nombre completo] en [red social]\". NO inventes ni muestres resultados de otras personas.",
+  "validation_prompt": "VALIDACIÓN ESTRICTA DE IDENTIDAD:\n✓ El nombre completo debe coincidir EXACTAMENTE con el buscado (nombre + todos los apellidos)\n✓ Si un resultado tiene un nombre parcial o diferente, marcarlo como DESCARTADO\n✓ No confundir personas con nombres similares\n✓ Si no se encuentra la persona exacta, el resultado es INVÁLIDO (no parcial)\n\nCRITERIOS:\n- ✅ VÁLIDO: ≥1 perfil/comentario encontrado de la persona EXACTA (nombre completo coincide)\n- ❌ INVÁLIDO: solo se encontraron personas con nombres similares pero NO la persona exacta\n- ❌ INVÁLIDO: no se encontró ningún resultado\n\nNO marques como PARCIAL si solo hay resultados de otras personas. Eso es INVÁLIDO."
+}

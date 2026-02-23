@@ -1,0 +1,45 @@
+services:
+  # Brave Search MCP Server (External)
+  brave-search-mcp:
+    build:
+      context: .
+      dockerfile: aifoundry/app/mcp_servers/externals/brave_search/Dockerfile
+    image: aifoundry-brave-search-mcp:latest
+    container_name: aifoundry_brave_search_mcp
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - PORT=8080
+      - BRAVE_MCP_TRANSPORT=http
+      - BRAVE_MCP_PORT=8080
+      - BRAVE_MCP_HOST=0.0.0.0
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
+    ports:
+      - "8082:8080"
+    networks:
+      - aifoundry_network
+
+  # Playwright MCP Server (External)
+  playwright-mcp:
+    build:
+      context: .
+      dockerfile: aifoundry/app/mcp_servers/externals/playwright/Dockerfile
+    image: aifoundry-playwright-mcp:latest
+    container_name: aifoundry_playwright_mcp
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - PORT=8931
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
+    ports:
+      - "8931:8931"
+    networks:
+      - aifoundry_network
+    # Comando exacto de HEFESTO con executable-path al chromium instalado
+    command: npx -y @playwright/mcp@latest --port 8931 --host 0.0.0.0 --allowed-hosts "*" --executable-path /ms-playwright/chromium-1200/chrome-linux/chrome --headless --isolated --no-sandbox --shared-browser-context --ignore-https-errors
+
+networks:
+  aifoundry_network:
+    driver: bridge
