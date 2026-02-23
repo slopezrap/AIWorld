@@ -91,7 +91,7 @@ aifoundry/app/core/agents/
 ### Uso básico
 
 ```python
-from aifoundry.app.core.agents.base.agent import ScraperAgent
+from aifoundry.app.core.agents.scraper.agent import ScraperAgent
 
 async with ScraperAgent(use_mcp=True) as agent:
     result = await agent.run({
@@ -107,7 +107,7 @@ async with ScraperAgent(use_mcp=True) as agent:
 ### Uso con Structured Output (RECOMENDADO)
 
 ```python
-from aifoundry.app.core.agents.base.agent import ScraperAgent
+from aifoundry.app.core.agents.scraper.agent import ScraperAgent
 from aifoundry.app.schemas.agent_responses import SalaryResponse
 
 async with ScraperAgent(
@@ -295,7 +295,7 @@ curl -X POST http://localhost:8000/api/scrape \
 
 ```python
 # scripts/test_real_estate_agent.py
-from aifoundry.app.core.agents.base.agent import ScraperAgent
+from aifoundry.app.core.agents.scraper.agent import ScraperAgent
 from aifoundry.app.schemas.agent_responses import RealEstateResponse
 
 async with ScraperAgent(response_model=RealEstateResponse) as agent:

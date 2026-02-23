@@ -19,7 +19,7 @@ logging.basicConfig(
 )
 
 from datetime import datetime
-from aifoundry.app.core.agents.base.agent import ScraperAgent
+from aifoundry.app.core.agents.scraper.agent import ScraperAgent
 from aifoundry.app.schemas.agent_responses import SalaryResponse
 from aifoundry.app.utils.country import get_country_info
 
@@ -40,7 +40,7 @@ async def main():
     """Test de scraping de salarios con ScraperAgent base y Structured Output."""
     
     # Cargar config desde JSON
-    with open("aifoundry/app/core/agents/salary/config.json") as f:
+    with open("aifoundry/app/core/agents/scraper/salary/config.json") as f:
         config_file = json.load(f)
     
     # BCG Lead Enterprise Architect en Madrid, España

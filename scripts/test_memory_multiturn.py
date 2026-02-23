@@ -18,7 +18,7 @@ import json
 import sys
 sys.path.insert(0, '.')
 
-from aifoundry.app.core.agents.base.agent import ScraperAgent
+from aifoundry.app.core.agents.scraper.agent import ScraperAgent
 from aifoundry.app.utils.country import get_country_info
 
 
@@ -28,7 +28,7 @@ async def test_multiturn_memory():
     la segunda respuesta puede referenciar información de la primera.
     """
     # Cargar config de electricidad (simple y rápido)
-    with open("aifoundry/app/core/agents/electricity/config.json") as f:
+    with open("aifoundry/app/core/agents/scraper/electricity/config.json") as f:
         config_file = json.load(f)
 
     country = "ES"

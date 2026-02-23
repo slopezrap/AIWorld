@@ -21,141 +21,99 @@
 
 ### 1.1 Análisis y Preparación
 
-- [ ] **Mapear dependencias internas** del `ConfigurableAgent` actual:
-  - Identificar los 5 bloques funcionales: memoria, tool calling, ejecución de fases, parsing de output, orquestación principal.
+- [x] **Mapear dependencias internas** del `ScraperAgent` actual:
+  - Identificar los 4 bloques funcionales: memoria, tool resolving, parsing de output, orquestación principal.
   - Documentar qué métodos llaman a qué otros para entender el acoplamiento.
-- [ ] **Definir interfaces/contratos** (Protocol classes o ABCs) para cada módulo extraído:
-  - `MemoryManager` — gestión de sesiones y mensajes
-  - `ToolExecutor` — resolución y ejecución de tools (MCP + internas)
-  - `PhaseRunner` — ejecución secuencial de fases
-  - `OutputParser` — extracción de structured data del LLM
-  - `AgentOrchestrator` — coordinación de todo lo anterior (el nuevo `agent.py` reducido)
-- [ ] **Escribir tests del agente actual** (con LLM mockeado) ANTES de refactorizar, para tener red de seguridad:
-  - Test de `chat()` con respuesta simple (sin tools)
-  - Test de `chat()` con tool calling (mock de MCP)
-  - Test de ejecución multi-fase
-  - Test de memoria multi-turno
-  - Test de cleanup de sesiones expiradas
+- [x] **Definir interfaces/contratos** para cada módulo extraído:
+  - `InMemoryManager` / `NullMemoryManager` — gestión de memoria conversacional
+  - `ToolResolver` — resolución de tools (MCP + locales)
+  - `OutputParser` — extracción de structured data y parsing de texto
+  - `ScraperAgent` — orquestador (el nuevo `agent.py` reducido)
+- [x] **Escribir tests del agente actual** (con LLM mockeado) ANTES de refactorizar (46 tests en `test_scraper_agent.py`):
+  - Test de `run()` con respuesta simple (sin tools)
+  - Test de `run()` con structured output nativo
+  - Test de `run()` con structured output legacy (fallback)
+  - Test de retry en error recuperable
+  - Test de error no recuperable
+  - Test de memoria conversacional (multi-turn)
 
 ### 1.2 Extracción del Módulo de Memoria (`memory.py`)
 
-- [ ] Crear `aifoundry/app/core/agents/base/memory.py`
-- [ ] Extraer de `agent.py`:
-  - `conversation_memory: dict` → clase `ConversationMemoryManager`
-  - `cleanup_expired_sessions()` → método de la clase
-  - `_get_memory()` / `_add_to_memory()` → métodos de la clase
-  - Toda la lógica de TTL y maxlen
-- [ ] Definir interfaz abstracta `BaseMemoryManager` (Protocol):
-  ```python
-  class BaseMemoryManager(Protocol):
-      async def get_messages(self, session_id: str) -> list[dict]
-      async def add_message(self, session_id: str, role: str, content: str) -> None
-      async def clear_session(self, session_id: str) -> None
-      async def cleanup_expired(self) -> int  # retorna nº de sesiones eliminadas
-  ```
-- [ ] Implementar `InMemoryManager(BaseMemoryManager)` — comportamiento actual
-- [ ] **Reemplazar `cleanup_expired_sessions()` en cada request** por un `asyncio` background task periódico (cada 60s) registrado en el `lifespan` de FastAPI
-- [ ] Actualizar `agent.py` para inyectar `MemoryManager` en el constructor
-- [ ] Verificar que los tests existentes siguen pasando
+- [x] Crear `aifoundry/app/core/agents/scraper/memory.py`
+- [x] Extraer de `agent.py`:
+  - Checkpointer de LangGraph → clase `InMemoryManager`
+  - Thread ID management → `generate_thread_id()`
+  - History access → `get_history()`
+  - Session clearing → `clear_session()`
+- [x] Implementar `InMemoryManager` — con `MemorySaver` de LangGraph
+- [x] Implementar `NullMemoryManager` — para agentes sin memoria
+- [x] Actualizar `agent.py` para usar `InMemoryManager`/`NullMemoryManager`
+- [x] Tests unitarios: 11 tests en `test_memory.py`
+- [x] Verificar que todos los tests pasan (206 ✅)
+- [ ] **Futuro:** Reemplazar cleanup por background task periódico en `lifespan`
 
-### 1.3 Extracción del Tool Executor (`tool_executor.py`)
+### 1.3 Extracción del Tool Resolver (`tool_executor.py`)
 
-- [ ] Crear `aifoundry/app/core/agents/base/tool_executor.py`
-- [ ] Extraer de `agent.py`:
-  - `_get_available_tools()` → resolución de tools desde config (MCP refs + internas)
-  - `_execute_tool_call()` → ejecución de una tool individual
-  - `_connect_mcp_and_get_tools()` → conexión a MCP servers
-  - Mapping de herramientas internas (`simple_scrape_url`, `get_country_info`)
-- [ ] Definir clase `ToolExecutor`:
+- [x] Crear `aifoundry/app/core/agents/scraper/tool_executor.py`
+- [x] Extraer de `agent.py`:
+  - `get_mcp_configs()` → método interno de `ToolResolver`
+  - `get_local_tools()` → método `_get_local_tools()`
+  - Conexión MCP via `MultiServerMCPClient` → `_resolve_mcp_tools()`
+  - Cleanup de MCP clients → `cleanup()`
+- [x] Definir clase `ToolResolver`:
   ```python
-  class ToolExecutor:
-      async def resolve_tools(self, tool_names: list[str]) -> list[ToolSchema]
-      async def execute(self, tool_name: str, arguments: dict) -> ToolResult
-      async def get_openai_tool_schemas(self, tool_names: list[str]) -> list[dict]
+  class ToolResolver:
+      async def resolve_tools(self) -> list[BaseTool]
+      async def cleanup() -> None
   ```
-- [ ] **Implementar pool/cache de conexiones MCP** — en lugar de abrir/cerrar por cada request:
-  - Cache de `ClientSession` por URL de MCP server
-  - Reconexión automática si la sesión se cierra
-  - Timeout configurable para conexiones MCP
-- [ ] Hacer `max_iterations` configurable desde `config.json` (actualmente hardcoded a 20)
-- [ ] Añadir **eventos/callbacks** en la ejecución de tools para preparar el streaming:
-  ```python
-  class ToolEvent:
-      event_type: Literal["tool_start", "tool_result", "tool_error"]
-      tool_name: str
-      arguments: dict | None
-      result: str | None
-  ```
-- [ ] Actualizar `agent.py` para usar `ToolExecutor` inyectado
-- [ ] Tests unitarios del `ToolExecutor` con MCP mockeado
+- [x] Manejo graceful de fallos MCP (continúa solo con tools locales)
+- [x] Actualizar `agent.py` para usar `ToolResolver` inyectado
+- [x] Tests unitarios: 15 tests en `test_tool_executor.py` con MCP mockeado
+- [x] Verificar que todos los tests pasan (221 ✅)
+- [ ] **Futuro:** Pool/cache de conexiones MCP
+- [ ] **Futuro:** Eventos/callbacks en la ejecución de tools para streaming
 
 ### 1.4 Extracción del Phase Runner (`phase_runner.py`)
 
-- [ ] Crear `aifoundry/app/core/agents/base/phase_runner.py`
-- [ ] Extraer de `agent.py`:
-  - Toda la lógica del loop `for phase in phases` dentro de `chat()`
-  - Construcción de prompts por fase (system prompt override, inyección de output schema)
-  - Acumulación de resultados entre fases
-- [ ] Definir clase `PhaseRunner`:
-  ```python
-  class PhaseRunner:
-      def __init__(self, tool_executor: ToolExecutor, llm_client, output_parser: OutputParser)
-      async def run_phases(self, phases: list[PhaseConfig], context: PhaseContext) -> PhaseResult
-      async def run_single_phase(self, phase: PhaseConfig, context: PhaseContext) -> PhaseResult
-  ```
-- [ ] `PhaseContext` debe contener: messages previos, memoria de sesión, country, params, resultados de fases anteriores
-- [ ] Añadir **eventos/callbacks por fase** para streaming:
-  ```python
-  class PhaseEvent:
-      event_type: Literal["phase_start", "phase_complete", "thinking"]
-      phase_id: str
-      content: str | None
-  ```
-- [ ] Tests unitarios del `PhaseRunner`
+> **Nota:** El agente actual usa un flujo ReAct (no fases secuenciales), así que no se necesita un `PhaseRunner` separado. La lógica de retry y ejecución está en `ScraperAgent.run()`. Se reconsiderará si se implementa ejecución multi-fase.
+
+- [ ] **Futuro:** Si se implementan fases secuenciales, extraer a `phase_runner.py`
+- [ ] **Futuro:** Eventos/callbacks por fase para streaming
 
 ### 1.5 Extracción del Output Parser (`output_parser.py`)
 
-- [ ] Crear `aifoundry/app/core/agents/base/output_parser.py`
-- [ ] Extraer de `agent.py`:
-  - `_parse_structured_output()` — extracción de JSON del texto LLM
-  - Lógica de bloques markdown (```json...```)
-  - Validación contra el `output_schema` del config
-  - Fallback cuando el LLM no devuelve JSON válido
-- [ ] Definir clase `OutputParser`:
+- [x] Crear `aifoundry/app/core/agents/scraper/output_parser.py`
+- [x] Extraer de `agent.py`:
+  - `_convert_to_structured()` → `OutputParser.extract_structured()`
+  - `parse_output()` → `OutputParser.parse_text()`
+  - Lógica de structured output nativo vs legacy (fallback)
+- [x] Definir clase `OutputParser`:
   ```python
   class OutputParser:
-      def parse(self, raw_text: str, expected_schema: dict | None) -> ParsedOutput
-      def extract_json_block(self, text: str) -> dict | None
-      def validate_against_schema(self, data: dict, schema: dict) -> ValidationResult
+      async def extract_structured(result, output, llm, config) -> BaseModel | None
+      def parse_text(output: str) -> dict
   ```
-- [ ] Tests unitarios con múltiples formatos de output del LLM (JSON limpio, markdown block, texto mixto, JSON inválido)
+- [x] Tests unitarios: 9 tests en `test_output_parser.py`
+- [x] Verificar que todos los tests pasan (230 ✅)
 
 ### 1.6 Agente Orquestador Simplificado (`agent.py` refactorizado)
 
-- [ ] Refactorizar `ConfigurableAgent` para que solo orqueste:
-  ```python
-  class ConfigurableAgent:
-      def __init__(self, config: AgentConfig, memory: BaseMemoryManager, 
-                   tool_executor: ToolExecutor, phase_runner: PhaseRunner, 
-                   output_parser: OutputParser)
-      async def chat(self, query: str, session_id: str, ...) -> ChatResult
-  ```
-- [ ] El método `chat()` simplificado debería ser ~50 líneas máximo:
-  1. Recuperar memoria de sesión
-  2. Construir contexto
-  3. Ejecutar fases vía `PhaseRunner`
-  4. Parsear output vía `OutputParser`
-  5. Guardar en memoria
-  6. Retornar resultado
-- [ ] Crear **factory function** `create_agent(config_path: str) -> ConfigurableAgent` que ensamble todas las dependencias
-- [ ] Verificar que TODOS los tests (nuevos y existentes) pasan
-- [ ] Actualizar los imports en `router.py`
+- [x] `ScraperAgent` ahora orquesta 3 módulos:
+  1. `InMemoryManager` / `NullMemoryManager` — gestión de memoria
+  2. `ToolResolver` — resolución de tools (MCP + locales)
+  3. `OutputParser` — structured output + text parsing
+- [x] El constructor inyecta las 3 dependencias
+- [x] `run()` delega a `OutputParser.extract_structured()` y `OutputParser.parse_text()`
+- [x] `initialize()` delega a `ToolResolver.resolve_tools()`
+- [x] `cleanup()` delega a `ToolResolver.cleanup()`
+- [x] Verificar que TODOS los tests pasan (230 ✅)
+- **Nota:** `agent.py` tiene ~607 líneas (incluyendo `AgentCallbackHandler` ~90 líneas, error helpers ~50 líneas, docstrings extensos). El código de orquestación real del `ScraperAgent` es ~250 líneas.
 
 ### 1.7 Actualización de Documentación
 
+- [x] Actualizar `docs/REFACTORING_CHECKLIST.md` con el estado actual
 - [ ] Actualizar `docs/AGENTS.md` con la nueva estructura modular
 - [ ] Documentar las interfaces/protocolos para contribuidores
-- [ ] Actualizar los diagramas de arquitectura si los hay
 
 ---
 
@@ -260,7 +218,7 @@
 
 ### 3.2 Sistema de Eventos Interno
 
-- [ ] Crear `aifoundry/app/core/agents/base/events.py`:
+- [ ] Crear `aifoundry/app/core/agents/scraper/events.py`:
   - Definir `AgentEvent` (union type de todos los eventos posibles)
   - Definir `EventEmitter` — interfaz para emitir eventos durante la ejecución:
     ```python
@@ -399,7 +357,7 @@
 
 ### 4.3 Implementación Redis (`redis_memory.py`)
 
-- [ ] Crear `aifoundry/app/core/agents/base/redis_memory.py`
+- [ ] Crear `aifoundry/app/core/agents/scraper/redis_memory.py`
 - [ ] Implementar `RedisMemoryManager(BaseMemoryManager)`:
   - **Estructura de datos Redis:**
     ```
@@ -432,7 +390,7 @@
 
 ### 4.4 Implementación SQLite (`sqlite_memory.py`)
 
-- [ ] Crear `aifoundry/app/core/agents/base/sqlite_memory.py`
+- [ ] Crear `aifoundry/app/core/agents/scraper/sqlite_memory.py`
 - [ ] Implementar `SQLiteMemoryManager(BaseMemoryManager)`:
   - **Schema:**
     ```sql
@@ -459,7 +417,7 @@
 
 ### 4.5 Factory de Memoria
 
-- [ ] Crear factory en `aifoundry/app/core/agents/base/memory.py`:
+- [ ] Crear factory en `aifoundry/app/core/agents/scraper/memory.py`:
   ```python
   def create_memory_manager(backend: str, config: Settings) -> BaseMemoryManager:
       match backend:
@@ -544,9 +502,9 @@ Fase 3 (Streaming):
 
 | Métrica | Antes | Después |
 |---------|-------|---------|
-| Líneas en `agent.py` | ~400 | ~80 |
-| Módulos en `base/` | 4 archivos | 8+ archivos |
-| Test coverage del agente | 0% | >80% |
+| Líneas en `agent.py` | ~400 | ~607 (orquestación ~250, callback ~90, helpers ~50, docs ~200) |
+| Módulos en `base/` | 4 archivos | 8 archivos (`agent.py`, `memory.py`, `tool_executor.py`, `output_parser.py`, `config_schema.py`, `prompts.py`, `tools.py`, `__init__.py`) |
+| Test coverage del agente | 0% | 230 tests (46 agent + 11 memory + 15 tool_executor + 9 output_parser + 149 otros) |
 | Tiempo de respuesta API | Bloqueante (30s+) | Primer evento SSE <1s |
 | Sesiones tras reinicio | Perdidas | Persistentes |
 | Endpoints protegidos | 0 | Todos (excepto health) |

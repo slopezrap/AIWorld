@@ -1,174 +1,268 @@
-# AIFoundry - Backend de AI Genérico
+# AIWorld
 
-Backend de AI genérico en Python que soporta los 4 paradigmas de AI modernos usando LangChain, LangGraph, FastAPI y LiteLLM.
+**Plataforma de agentes de AI para investigación web y extracción de datos estructurados.**
 
-## 🎯 Paradigmas Soportados
+AIWorld está compuesto por dos componentes principales:
 
-| Paradigma | Descripción | Estado |
-|-----------|-------------|--------|
-| **1. LLM Workflow** | Chatbots, text generation | ⏳ Pendiente |
-| **2. RAG** | Q&A con vector DB | ⏳ Pendiente |
-| **3. AI Agent** | Autonomous action con tools | ✅ Implementado |
-| **4. Multi-Agent** | Colaboración entre agentes | ⏳ Pendiente |
+| Componente | Descripción | Stack |
+|------------|-------------|-------|
+| **AIFoundry** (Backend) | API de agentes de AI con scraping web, búsqueda y structured output | Python · FastAPI · LangGraph · LiteLLM · MCP |
+| **AIWorld Client** (Frontend) | Interfaz conversacional tipo Cline para Microsoft Teams | React · TypeScript · Teams SDK · SSE |
 
-## 🛠 Stack Tecnológico
+---
+
+## Arquitectura
+
+```
+┌──────────────────────────────────────────────────────┐
+│                  AIWorld Client                       │
+│         React SPA / Microsoft Teams Tab App          │
+│                                                      │
+│  ┌─────────┐  ┌──────────────┐  ┌────────────────┐  │
+│  │ Sidebar  │  │  Chat Panel  │  │ Structured     │  │
+│  │ Agents   │  │  Messages    │  │ Data Tables    │  │
+│  │ Sessions │  │  Tool Blocks │  │ Charts         │  │
+│  └─────────┘  └──────────────┘  └────────────────┘  │
+└──────────────────────┬───────────────────────────────┘
+                       │ REST + SSE
+┌──────────────────────▼───────────────────────────────┐
+│                    AIFoundry                          │
+│              FastAPI Backend (Python)                 │
+│                                                      │
+│  ┌──────────────────────────────────────────────┐    │
+│  │             ScraperAgent (ReAct)              │    │
+│  │  ┌──────────┐ ┌──────────┐ ┌─────────────┐  │    │
+│  │  │ Memory   │ │ Tool     │ │ Output      │  │    │
+│  │  │ Manager  │ │ Resolver │ │ Parser      │  │    │
+│  │  └──────────┘ └──────────┘ └─────────────┘  │    │
+│  └──────────────────────────────────────────────┘    │
+│                                                      │
+│  ┌───────────────┐  ┌───────────────────────────┐    │
+│  │ LLM (LiteLLM) │  │ MCP Servers               │    │
+│  │ Claude/GPT/... │  │ ┌─────────┐ ┌──────────┐ │    │
+│  └───────────────┘  │ │ Brave   │ │Playwright│ │    │
+│                      │ │ Search  │ │ Browser  │ │    │
+│                      │ └─────────┘ └──────────┘ │    │
+│                      └───────────────────────────┘    │
+└──────────────────────────────────────────────────────┘
+```
+
+---
+
+## AIFoundry (Backend)
+
+### ¿Qué es?
+
+AIFoundry es un backend de agentes de AI que investigan la web, extraen datos y los devuelven como objetos Pydantic estructurados. Usa un único agente genérico (`ScraperAgent`) que se configura vía JSON para cada dominio.
+
+### Dominios disponibles
+
+| Dominio | Config | Structured Output | Descripción |
+|---------|--------|-------------------|-------------|
+| **Salarios** | `salary/config.json` | `SalaryResponse` | Investiga salarios por empresa, puesto y país |
+| **Electricidad** | `electricity/config.json` | `ElectricityResponse` | Precios de electricidad por país y proveedor |
+| **Comentarios Sociales** | `social_comments/config.json` | `SocialCommentsResponse` | Monitoriza opiniones en redes sociales |
+
+### Stack tecnológico
 
 | Tecnología | Propósito |
 |------------|-----------|
-| **LangChain** | Orquestación LLMs, Agents |
-| **LangGraph** | Runtime para agentes |
-| **FastAPI** | API REST |
-| **LiteLLM** | Multi-proveedor LLM |
+| **LangGraph** | Runtime de agentes ReAct con checkpointer |
+| **LangChain** | Orquestación de LLMs y tools |
+| **LiteLLM** | Proxy multi-proveedor (Bedrock, OpenAI, Anthropic) |
+| **FastAPI** | API REST con docs OpenAPI automáticas |
+| **MCP** | Model Context Protocol para tools externas |
+| **Pydantic** | Validación de datos y structured output |
 
----
-
-## ✅ IMPLEMENTADO: LLM Factory (`core/models/`)
-
-Singleton que proporciona el LLM base para todos los paradigmas.
-
-```python
-from aifoundry.app.core.models import get_llm
-
-llm = get_llm()
-response = await llm.ainvoke("Hola")
-```
-
-Configuración en `.env`:
-```bash
-LITELLM_API_BASE=https://api.inditex.com/litellm
-LITELLM_API_KEY=sk-your-key
-LITELLM_MODEL=bedrock/claude-sonnet-4
-DEFAULT_TEMPERATURE=0.7
-DEFAULT_MAX_TOKENS=1000
-```
-
----
-
-## ✅ IMPLEMENTADO: Paradigma 3 - AI Agent (`core/agents/`)
-
-> **📚 Documentación completa:** Ver **[docs/AGENTS.md](docs/AGENTS.md)** para guía detallada de cómo crear nuevos agentes.
-
-> **⚠️ NO ELIMINAR:** El agente de ejemplo (`core/agents/example/`) sirve como referencia para crear nuevos agentes.
-
-### Estructura de un Agent
-
-```
-aifoundry/app/core/agents/
-├── __init__.py              # Export de agentes
-└── example/                 # ⚠️ NO ELIMINAR - Agente de referencia
-    ├── __init__.py
-    ├── agent.py             # Clase ExampleAgent
-    ├── tools.py             # get_tools() + @tool decorators
-    └── prompts.py           # get_system_prompt() + get_user_prompt()
-```
-
-### Patrón de Agent (Resumen)
-
-```python
-# 1. tools.py - Herramientas con @tool
-@tool
-def mi_tool(param: str) -> str:
-    """Docstring IMPORTANTE - el LLM lo lee para decidir cuándo usarla."""
-    return resultado
-
-def get_tools() -> List[BaseTool]:
-    return [mi_tool, ...]
-
-# 2. prompts.py - Funciones para prompts
-def get_system_prompt() -> str:
-    return "Eres un asistente..."
-
-def get_user_prompt(message: str) -> str:
-    return f"Pregunta: {message}"
-
-# 3. agent.py - Clase del agente
-class MiAgent:
-    def __init__(self):
-        self._agent = create_agent(
-            model=get_llm(),
-            tools=get_tools(),
-            system_prompt=SystemMessage(content=get_system_prompt()),  # ← Aquí
-        )
-    
-    async def invoke(self, message: str) -> str:
-        response = await self._agent.ainvoke({
-            "messages": [HumanMessage(content=get_user_prompt(message))]  # ← Solo HumanMessage
-        })
-        return response["messages"][-1].content
-```
-
-### Uso Rápido
-
-```python
-from aifoundry.app.core.agents import ExampleAgent
-
-agent = ExampleAgent()
-response = await agent.invoke("¿Qué hora es?")
-print(response)  # "La hora actual es 15:08:22"
-```
-
-### Para crear un nuevo agente
-
-1. Copia `core/agents/example/` como base
-2. Modifica `tools.py`, `prompts.py`, `agent.py`
-3. Exporta en `core/agents/__init__.py`
-4. Ver **[docs/AGENTS.md](docs/AGENTS.md)** para guía completa
-
----
-
-## 📁 Estructura del Proyecto
+### Estructura del proyecto
 
 ```
 aifoundry/
 ├── app/
-│   ├── config.py               # Settings (pydantic-settings)
-│   ├── main.py                 # FastAPI entry point
-│   │
+│   ├── api/                    # Endpoints FastAPI
+│   │   ├── router.py           # Routes: /health, /agents, /agents/{name}/run
+│   │   └── schemas.py          # Request/Response schemas
+│   ├── config.py               # Settings (Pydantic BaseSettings)
+│   ├── main.py                 # FastAPI app + lifespan
 │   ├── core/
-│   │   ├── models/
-│   │   │   └── llm.py          # ✅ LLM Factory (Singleton)
-│   │   │
-│   │   └── agents/             # ✅ Paradigma 3
-│   │       └── example/        # Agent de ejemplo funcionando
-│   │           ├── agent.py
-│   │           ├── tools.py
-│   │           └── prompts.py
-│   │
-│   ├── api/v1/                 # Endpoints (pendiente)
-│   └── tools/                  # Tools comunes (pendiente)
-│
-├── scripts/
-│   ├── test_litellm.py         # Test del LLM
-│   └── test_agent.py           # Test del ExampleAgent
-│
-└── .env                        # Configuración
+│   │   ├── agents/
+│   │   │   └── scraper/             # Agente genérico de scraping
+│   │   │       ├── agent.py         # ScraperAgent (orquestador)
+│   │   │       ├── memory.py        # InMemoryManager / NullMemoryManager
+│   │   │       ├── tool_executor.py # ToolResolver (MCP + local tools)
+│   │   │       ├── output_parser.py # OutputParser (structured + text)
+│   │   │       ├── prompts.py       # System prompt builder
+│   │   │       ├── tools.py         # Local tools (scraper, country info)
+│   │   │       ├── config_schema.py # AgentConfig Pydantic model
+│   │   │       ├── salary/          # config.json para salarios
+│   │   │       ├── electricity/     # config.json para electricidad
+│   │   │       └── social_comments/ # config.json para redes sociales
+│   │   └── models/
+│   │       └── llm.py          # LLM singleton (init_chat_model + LiteLLM)
+│   ├── mcp_servers/            # Servidores MCP (Brave Search, Playwright)
+│   ├── schemas/                # Response models (SalaryResponse, etc.)
+│   └── utils/                  # Utilidades (parsing, scraping, country info)
+├── tests/                      # 230 tests (unit + integration)
+└── docker/                     # Dockerfiles
 ```
 
----
+### API Endpoints
 
-## 🚀 Instalación y Uso
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| `GET` | `/health` | Health check |
+| `GET` | `/api/agents` | Lista de agentes disponibles |
+| `GET` | `/api/agents/{name}/config` | Configuración de un agente |
+| `POST` | `/api/agents/{name}/run` | Ejecuta un agente (síncrono) |
+
+### Instalación y ejecución
 
 ```bash
-# Setup
-git clone https://github.com/user/aifoundry.git
-cd aifoundry
+# 1. Clonar el repositorio
+git clone https://github.com/slopezrap/AIWorld.git
+cd AIWorld
+
+# 2. Crear entorno virtual
 python -m venv .venv
 source .venv/bin/activate
-pip install -e .
 
-# Configurar
+# 3. Instalar dependencias
+pip install -e ".[dev]"
+
+# 4. Configurar variables de entorno
 cp .env.example .env
-# Editar .env con credenciales
+# Editar .env con tus API keys
 
-# Test LLM
-PYTHONPATH=. python scripts/test_litellm.py
+# 5. Levantar servicios MCP (Docker)
+docker compose up -d
 
-# Test Agent
-PYTHONPATH=. python scripts/test_agent.py
+# 6. Ejecutar el servidor
+uvicorn aifoundry.app.main:app --reload --port 8000
 ```
+
+### Configuración (.env)
+
+```bash
+# LLM
+LITELLM_API_BASE=https://your-litellm-proxy.com
+LITELLM_API_KEY=sk-your-key
+LITELLM_MODEL=bedrock/claude-sonnet-4
+
+# MCP Servers
+BRAVE_SEARCH_MCP_URL=http://localhost:8082/mcp
+PLAYWRIGHT_MCP_URL=http://localhost:8931/mcp
+
+# Brave Search
+BRAVE_API_KEY=your-brave-key
+```
+
+### Tests
+
+```bash
+# Ejecutar todos los tests (230)
+python -m pytest aifoundry/tests/ -v
+
+# Tests unitarios
+python -m pytest aifoundry/tests/unit/ -v
+
+# Tests de integración
+python -m pytest aifoundry/tests/integration/ -v
+
+# Scripts de test end-to-end (requiere servicios MCP + LLM)
+python scripts/test_salary_agent.py
+python scripts/test_electricity_agent.py
+python scripts/test_social_comments_agent.py
+```
+
+### Crear un nuevo dominio
+
+Para añadir un nuevo tipo de agente (ej: precios de gasolina):
+
+1. **Crear config.json** en `aifoundry/app/core/agents/scraper/fuel/config.json`
+2. **Crear response model** en `aifoundry/app/schemas/agent_responses.py`
+3. El discovery automático del router lo detecta (busca `**/config.json` recursivamente)
+
+No se necesita crear clases Python — `ScraperAgent` es genérico y se adapta vía config.
 
 ---
 
-## 📄 Licencia
+## AIWorld Client (Frontend) — En desarrollo
 
-MIT License
+### Visión
+
+Interfaz conversacional inspirada en Cline, adaptada para usuarios no técnicos. Se integra como **Microsoft Teams Tab App** para acceso directo desde el entorno corporativo.
+
+### Características planificadas
+
+- **Formularios dinámicos** por agente (en vez de prompt libre)
+- **Tool Blocks** expandibles estilo Cline (ver qué está haciendo el agente en tiempo real)
+- **Streaming SSE** para respuestas progresivas
+- **Tablas de datos estructurados** con export a Excel
+- **Historial de sesiones** con memoria conversacional
+- **Tema corporativo** con soporte dark/light
+
+### Stack planificado
+
+| Tecnología | Propósito |
+|------------|-----------|
+| **React 18+** | UI framework |
+| **TypeScript** | Type safety |
+| **Vite** | Build tool |
+| **Zustand** | State management |
+| **TanStack Query** | Server state + cache |
+| **Fluent UI** | Componentes Microsoft |
+| **Teams SDK** | Integración Microsoft Teams |
+
+### Fases de desarrollo
+
+| Fase | Descripción | Estado |
+|------|-------------|--------|
+| **Phase 1 — MVP** | Polling async: formularios, respuestas, datos estructurados | 📋 Planificado |
+| **Phase 2 — Streaming** | SSE para tool blocks en tiempo real, UX tipo Cline | 📋 Planificado |
+| **Phase 3 — Teams** | Empaquetado como Teams Tab App, auth SSO | 📋 Planificado |
+
+> Ver `docs/FRONTEND_DESIGN_PROPOSAL.md` para el diseño detallado.
+
+---
+
+## Documentación
+
+| Documento | Descripción |
+|-----------|-------------|
+| `docs/AGENTS.md` | Guía completa de agentes: configuración, tools, structured output |
+| `docs/MCP.md` | Arquitectura MCP: Brave Search y Playwright |
+| `docs/FRONTEND_DESIGN_PROPOSAL.md` | Propuesta de diseño del frontend |
+| `docs/REFACTORING_CHECKLIST.md` | Checklist de refactoring del backend |
+
+---
+
+## Roadmap
+
+### ✅ Completado
+
+- Agente ReAct genérico (`ScraperAgent`) con config JSON por dominio
+- Structured output nativo via `response_format` (1 sola llamada LLM)
+- Integración MCP (Brave Search + Playwright)
+- Memoria conversacional con `InMemorySaver`
+- API REST con FastAPI
+- 230 tests unitarios y de integración
+- Refactoring modular: `memory.py`, `tool_executor.py`, `output_parser.py`
+
+### 🔧 En progreso
+
+- [ ] Autenticación API Key (`X-API-Key` header)
+- [ ] Streaming SSE (`POST /agents/{name}/stream`)
+- [ ] Memoria persistente (Redis + SQLite fallback)
+
+### 📋 Planificado
+
+- [ ] Frontend React (AIWorld Client)
+- [ ] Integración Microsoft Teams
+- [ ] Multi-agent workflows
+- [ ] RAG con vector DB
+
+---
+
+## Licencia
+
+MIT

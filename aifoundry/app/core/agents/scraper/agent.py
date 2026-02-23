@@ -25,19 +25,17 @@ import uuid
 import warnings
 from typing import Optional, List, Dict, Type
 
-from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain.agents import create_agent
 from langchain_core.tools import BaseTool
 from langchain_core.callbacks import BaseCallbackHandler
-from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import BaseModel
 
 from aifoundry.app.core.models.llm import get_llm
-from aifoundry.app.schemas.agent_responses import get_response_schema
-from aifoundry.app.core.agents.base.tools import get_local_tools
-from aifoundry.app.core.agents.base.prompts import get_system_prompt
-from aifoundry.app.utils.parsing import parse_agent_output
+from aifoundry.app.core.agents.scraper.prompts import get_system_prompt
+from aifoundry.app.core.agents.scraper.memory import InMemoryManager, NullMemoryManager
+from aifoundry.app.core.agents.scraper.tool_executor import ToolResolver
+from aifoundry.app.core.agents.scraper.output_parser import OutputParser
 
 logger = logging.getLogger(__name__)
 
@@ -127,23 +125,6 @@ class AgentCallbackHandler(BaseCallbackHandler):
         self._logger.info("✅ AGENT %s FINISHED", self.agent_name)
 
 
-# =============================================================================
-# MCP CONFIG LOADER
-# =============================================================================
-
-def get_mcp_configs() -> Dict[str, Dict]:
-    """Obtiene las configuraciones de los MCPs disponibles."""
-    from aifoundry.app.mcp_servers.externals.brave_search.brave_search_mcp import (
-        get_mcp_config as get_brave_config,
-    )
-    from aifoundry.app.mcp_servers.externals.playwright.playwright_mcp import (
-        get_mcp_config as get_playwright_config,
-    )
-
-    return {
-        "brave": get_brave_config(),
-        "playwright": get_playwright_config(),
-    }
 
 
 # =============================================================================
@@ -288,7 +269,6 @@ class ScraperAgent:
             )
 
         self.llm = get_llm()
-        self._disable_simple_scrape = disable_simple_scrape
         self._verbose = verbose
         self._use_memory = use_memory
         self._structured_output = structured_output
@@ -296,27 +276,30 @@ class ScraperAgent:
         self._agent_name = agent_name
         self._use_mcp = use_mcp
 
-        # Checkpointer para memoria (LangGraph)
-        self._checkpointer = InMemorySaver() if use_memory else None
+        # Memory manager (abstrae el checkpointer de LangGraph)
+        self._memory_manager = InMemoryManager() if use_memory else NullMemoryManager()
+        self._checkpointer = self._memory_manager.get_checkpointer()
 
         # Thread ID estable para toda la vida del agente
-        self._thread_id: str = str(uuid.uuid4())
+        self._thread_id: str = self._memory_manager.generate_thread_id()
 
         # Callback para logging
         self._callbacks = [AgentCallbackHandler()] if verbose else []
 
-        # Obtener tools locales
-        if tools is not None:
-            self._local_tools = list(tools)
-        else:
-            all_local = get_local_tools()
-            if disable_simple_scrape:
-                self._local_tools = [t for t in all_local if t.name != "simple_scrape_url"]
-            else:
-                self._local_tools = list(all_local)
+        # Tool resolver (carga tools locales + MCP)
+        self._tool_resolver = ToolResolver(
+            use_mcp=use_mcp,
+            disable_simple_scrape=disable_simple_scrape,
+            custom_tools=tools,
+        )
+
+        # Output parser (structured output + text parsing)
+        self._output_parser = OutputParser(
+            response_model=response_model,
+            use_structured_output=structured_output,
+        )
 
         # Estado interno — se pobla en initialize()
-        self._mcp_client: Optional[MultiServerMCPClient] = None
         self._all_tools: Optional[List[BaseTool]] = None
         self._agent = None
 
@@ -347,24 +330,8 @@ class ScraperAgent:
         if self._agent is not None:
             return
 
-        all_tools = list(self._local_tools)
-
-        # Cargar tools MCP
-        if self._use_mcp:
-            try:
-                mcp_configs = get_mcp_configs()
-                self._mcp_client = MultiServerMCPClient(mcp_configs)
-                mcp_tools = await self._mcp_client.get_tools()
-                # Configurar manejo de errores en tools MCP para que
-                # "no results" no crashee el agente — se devuelve al LLM como texto
-                for t in mcp_tools:
-                    t.handle_tool_error = _tool_error_handler
-                all_tools.extend(mcp_tools)
-                logger.info(f"MCP tools loaded: {[t.name for t in mcp_tools]}")
-            except Exception as e:
-                logger.warning(f"Error cargando MCP tools: {e}. Continuando solo con tools locales.")
-
-        self._all_tools = all_tools
+        # Resolver tools (locales + MCP) via ToolResolver
+        self._all_tools = await self._tool_resolver.resolve_tools()
 
         # Construir kwargs para create_agent
         agent_kwargs: Dict = {
@@ -396,15 +363,7 @@ class ScraperAgent:
 
     async def cleanup(self) -> None:
         """Libera recursos (MCP client, agente)."""
-        if self._mcp_client:
-            try:
-                if hasattr(self._mcp_client, "close"):
-                    await self._mcp_client.close()
-            except Exception as e:
-                logger.debug(f"Error cerrando MCP client: {e}")
-            finally:
-                self._mcp_client = None
-
+        await self._tool_resolver.cleanup()
         self._agent = None
         self._all_tools = None
 
@@ -416,13 +375,14 @@ class ScraperAgent:
         """
         Resetea la memoria conversacional.
 
-        Crea un nuevo InMemorySaver y genera un nuevo thread_id,
+        Limpia la sesión y genera un nuevo thread_id,
         empezando una conversación limpia. El agente se reinicializará
         en la próxima llamada a run().
         """
         if self._use_memory:
-            self._checkpointer = InMemorySaver()
-            self._thread_id = str(uuid.uuid4())
+            self._memory_manager.clear_session(self._thread_id)
+            self._checkpointer = self._memory_manager.get_checkpointer()
+            self._thread_id = self._memory_manager.generate_thread_id()
             # Forzar reinicialización del agente con el nuevo checkpointer
             self._agent = None
             logger.info(f"Memory reset. New thread: {self._thread_id[:8]}...")
@@ -436,18 +396,7 @@ class ScraperAgent:
         Returns:
             Lista de mensajes o None si no hay memoria habilitada.
         """
-        if not self._use_memory or not self._checkpointer:
-            return None
-
-        try:
-            config = {"configurable": {"thread_id": self._thread_id}}
-            checkpoint = self._checkpointer.get(config)
-            if checkpoint and "channel_values" in checkpoint:
-                return checkpoint["channel_values"].get("messages", [])
-            return []
-        except Exception as e:
-            logger.warning(f"Error obteniendo historial: {e}")
-            return None
+        return self._memory_manager.get_history(self._thread_id)
 
     @property
     def thread_id(self) -> str:
@@ -563,51 +512,25 @@ class ScraperAgent:
                         )
                         # Resetear memoria para evitar estado corrupto
                         if self._use_memory:
-                            self._checkpointer = InMemorySaver()
-                            self._thread_id = str(uuid.uuid4())
+                            self._memory_manager.clear_session(self._thread_id)
+                            self._checkpointer = self._memory_manager.get_checkpointer()
+                            self._thread_id = self._memory_manager.generate_thread_id()
                             self._agent = None
                             await self.initialize()
                             run_config = self._build_run_config()
                         continue
 
                 # --- Structured output ---
-                structured_response = None
-                use_native = self._response_model is not None
-
-                if use_native:
-                    # NATIVO: response_format ya procesó el output → extraer de state
-                    structured_response = result.get("structured_response")
-                    if structured_response is not None:
-                        logger.info(
-                            "Structured output (native): %s",
-                            type(structured_response).__name__,
-                        )
-                    else:
-                        logger.warning(
-                            "response_format configurado pero structured_response "
-                            "no encontrado en el resultado. Usando fallback."
-                        )
-                        # Fallback a post-processing si el nativo falla
-                        structured_response = await self._convert_to_structured(
-                            output=output,
-                            product=config.get("product", ""),
-                            config=config,
-                            schema_override=self._response_model,
-                        )
-
-                elif self._structured_output:
-                    # LEGACY: post-processing con segunda llamada LLM
-                    product = config.get("product", "")
-                    if product:
-                        structured_response = await self._convert_to_structured(
-                            output=output,
-                            product=product,
-                            config=config,
-                        )
+                structured_response = await self._output_parser.extract_structured(
+                    result=result,
+                    output=output,
+                    llm=self.llm,
+                    config=config,
+                )
 
                 # Parsear output texto (skip si hay structured output)
                 has_structured = structured_response is not None
-                parsed = {} if has_structured else self.parse_output(output)
+                parsed = {} if has_structured else self._output_parser.parse_text(output)
 
                 response = {
                     "status": "success",
@@ -646,8 +569,9 @@ class ScraperAgent:
                     logger.warning(f"⚠️ Error de red (intento {attempt + 1}/{max_retries}): {e}")
                     # Resetear memoria para evitar estado corrupto (tool_use sin tool_result)
                     if self._use_memory:
-                        self._checkpointer = InMemorySaver()
-                        self._thread_id = str(uuid.uuid4())
+                        self._memory_manager.clear_session(self._thread_id)
+                        self._checkpointer = self._memory_manager.get_checkpointer()
+                        self._thread_id = self._memory_manager.generate_thread_id()
                         self._agent = None
                         await self.initialize()
                         run_config = self._build_run_config()
@@ -671,71 +595,13 @@ class ScraperAgent:
         }
 
     # -------------------------------------------------------------------------
-    # Structured output (post-processing)
-    # -------------------------------------------------------------------------
-
-    async def _convert_to_structured(
-        self,
-        output: str,
-        product: str,
-        config: dict,
-        schema_override: Optional[Type[BaseModel]] = None,
-    ) -> Optional[BaseModel]:
-        """
-        Convierte el output del agente a formato estructurado usando
-        with_structured_output() — POST-PROCESAMIENTO (2ª llamada LLM).
-
-        NOTA: Este método es un FALLBACK. Preferir usar response_model=
-        en el constructor para structured output nativo (1 sola llamada).
-
-        Args:
-            output: Output del agente en texto libre.
-            product: Tipo de producto para seleccionar el esquema Pydantic.
-            config: Config original para contexto adicional.
-            schema_override: Clase Pydantic a usar directamente (en vez de inferir).
-
-        Returns:
-            Objeto Pydantic con datos estructurados, o None si falla.
-        """
-        try:
-            schema = schema_override or get_response_schema(product)
-            structured_llm = self.llm.with_structured_output(schema)
-
-            structuring_prompt = (
-                "Extrae y estructura la siguiente información en el formato solicitado.\n\n"
-                "CONTEXTO:\n"
-                f"- Empresa/Provider: {config.get('provider', 'N/A')}\n"
-                f"- País: {config.get('country_code', 'N/A')}\n"
-                f"- Query utilizada: {config.get('query', 'N/A')}\n\n"
-                "INFORMACIÓN A ESTRUCTURAR:\n"
-                f"{output}\n\n"
-                "Extrae todos los datos relevantes y estructúralos según el esquema."
-            )
-
-            result = await structured_llm.ainvoke(structuring_prompt)
-
-            logger.info(
-                "Structured output (post-processing): %s",
-                type(result).__name__,
-            )
-
-            return result
-
-        except Exception as e:
-            logger.warning("⚠️ Error generando structured output: %s", e)
-            return None
-
-    # -------------------------------------------------------------------------
-    # Output parsing
+    # Output parsing (delegado a OutputParser)
     # -------------------------------------------------------------------------
 
     def parse_output(self, output: str) -> dict:
         """
         Parsea el output del LLM extrayendo queries, URLs y uso de Playwright.
 
-        Solo se usa cuando structured_output=False. Cuando structured_output=True,
-        el parseo se delega a _convert_to_structured() con Pydantic.
-
-        Delegado a utils/parsing.py para reutilización y testabilidad.
+        Delegado a OutputParser para reutilización y testabilidad.
         """
-        return parse_agent_output(output)
+        return self._output_parser.parse_text(output)

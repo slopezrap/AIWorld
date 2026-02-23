@@ -4,7 +4,7 @@ Tests para config_schema.py — validación Pydantic de config.json de agentes.
 
 import pytest
 from pydantic import ValidationError
-from aifoundry.app.core.agents.base.config_schema import AgentConfig, CountryConfig
+from aifoundry.app.core.agents.scraper.config_schema import AgentConfig, CountryConfig
 
 
 class TestCountryConfig:

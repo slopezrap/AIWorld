@@ -18,7 +18,7 @@ logging.basicConfig(
 )
 
 from datetime import datetime
-from aifoundry.app.core.agents.base.agent import ScraperAgent
+from aifoundry.app.core.agents.scraper.agent import ScraperAgent
 from aifoundry.app.utils.country import get_country_info
 
 # Meses en español
@@ -38,7 +38,7 @@ async def main():
     """Test de scraping de comentarios en redes sociales."""
     
     # Cargar config desde JSON
-    with open("aifoundry/app/core/agents/social_comments/config.json") as f:
+    with open("aifoundry/app/core/agents/scraper/social_comments/config.json") as f:
         config_file = json.load(f)
     
     # Parámetros de búsqueda

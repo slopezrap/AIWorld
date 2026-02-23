@@ -3,7 +3,7 @@ Tests para get_system_prompt() — generación de system prompts.
 """
 
 import pytest
-from aifoundry.app.core.agents.base.prompts import get_system_prompt
+from aifoundry.app.core.agents.scraper.prompts import get_system_prompt
 
 
 class TestSystemPromptBasic:

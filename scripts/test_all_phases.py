@@ -56,7 +56,7 @@ def section(title: str):
 def test_fase1():
     section("FASE 1: Bugs Críticos")
 
-    from aifoundry.app.core.agents.base.agent import ScraperAgent
+    from aifoundry.app.core.agents.scraper.agent import ScraperAgent
 
     # 1.1 — self._agent se reutiliza (no se crea en run())
     agent = ScraperAgent(use_mcp=False, verbose=False)
@@ -89,7 +89,7 @@ def test_fase2():
 
     # 2.1 — run() unificado (sin ramas MCP duplicadas)
     import inspect
-    from aifoundry.app.core.agents.base.agent import ScraperAgent
+    from aifoundry.app.core.agents.scraper.agent import ScraperAgent
     run_source = inspect.getsource(ScraperAgent.run)
     check("2.1 — run() sin create_agent() interno", "create_agent" not in run_source)
     check("2.1 — _build_run_config() existe", hasattr(ScraperAgent, '_build_run_config'))
@@ -99,7 +99,7 @@ def test_fase2():
     check("2.2 — Sin 'dataclass' import en agent.py", "from dataclasses" not in agent_source)
 
     # 2.3 — simple_scrape_url es async
-    from aifoundry.app.core.agents.base.tools import simple_scrape_url
+    from aifoundry.app.core.agents.scraper.tools import simple_scrape_url
     check("2.3 — simple_scrape_url es coroutine/async", 
           asyncio.iscoroutinefunction(simple_scrape_url.coroutine) if hasattr(simple_scrape_url, 'coroutine') else True,
           "async via @tool")
@@ -174,7 +174,7 @@ def test_fase4():
 
     # 4.1 — AgentConfig Pydantic
     from pydantic import ValidationError
-    from aifoundry.app.core.agents.base.config_schema import AgentConfig, CountryConfig
+    from aifoundry.app.core.agents.scraper.config_schema import AgentConfig, CountryConfig
 
     # Config válido
     cfg = AgentConfig(
@@ -216,7 +216,7 @@ def test_fase4():
         check(f"4.1 — get_validated_config('{name}') OK", vc is not None, vc.product if vc else "None")
 
     # 4.2 — system_prompt_template
-    from aifoundry.app.core.agents.base.prompts import get_system_prompt
+    from aifoundry.app.core.agents.scraper.prompts import get_system_prompt
     config_custom = {
         "product": "TEST", "country_code": "ES", "language": "es",
         "system_prompt_template": "Agente para {product} en {country_name}."
@@ -270,7 +270,7 @@ def test_fase5():
 def test_fase6():
     section("FASE 6: Prompt Engineering")
 
-    from aifoundry.app.core.agents.base.prompts import get_system_prompt
+    from aifoundry.app.core.agents.scraper.prompts import get_system_prompt
 
     # Prompt genérico con config española
     config_es = {

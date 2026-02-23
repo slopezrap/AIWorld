@@ -13,7 +13,7 @@ Cada agente solo necesita un config.json.
 El ScraperAgent base se usa directamente con la config de cada dominio.
 """
 
-from aifoundry.app.core.agents.base import (
+from aifoundry.app.core.agents.scraper import (
     ScraperAgent,
     get_local_tools,
     simple_scrape_url,

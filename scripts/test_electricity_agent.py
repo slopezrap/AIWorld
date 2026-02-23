@@ -19,7 +19,7 @@ logging.basicConfig(
 )
 
 from datetime import datetime
-from aifoundry.app.core.agents.base.agent import ScraperAgent
+from aifoundry.app.core.agents.scraper.agent import ScraperAgent
 from aifoundry.app.utils.country import get_country_info
 
 # Meses en español
@@ -39,7 +39,7 @@ async def main():
     """Test de scraping de electricidad con ScraperAgent base."""
     
     # Cargar config desde JSON
-    with open("aifoundry/app/core/agents/electricity/config.json") as f:
+    with open("aifoundry/app/core/agents/scraper/electricity/config.json") as f:
         config_file = json.load(f)
     
     # Endesa en España

@@ -20,8 +20,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import ValidationError
 
 from aifoundry.app.config import settings
-from aifoundry.app.core.agents.base.agent import ScraperAgent
-from aifoundry.app.core.agents.base.config_schema import AgentConfig
+from aifoundry.app.core.agents.scraper.agent import ScraperAgent
+from aifoundry.app.core.agents.scraper.config_schema import AgentConfig
 from aifoundry.app.schemas.agent_responses import get_response_schema
 from aifoundry.app.utils.country import get_country_info
 
@@ -59,9 +59,11 @@ _validated_configs: Dict[str, AgentConfig] = {}
 
 def _discover_agents() -> Dict[str, Dict[str, Any]]:
     """
-    Descubre agentes disponibles escaneando subdirectorios con config.json.
+    Descubre agentes disponibles buscando config.json recursivamente.
 
-    Excluye el directorio 'base/' que contiene el agente genérico.
+    Busca archivos config.json en cualquier subdirectorio de core/agents/.
+    Usa el nombre del directorio padre del config.json como nombre del agente.
+    Ignora directorios que empiezan con '_' o '__'.
     Valida cada config.json contra AgentConfig schema Pydantic.
     Los agentes con config inválido se descartan con un warning.
 
@@ -75,12 +77,12 @@ def _discover_agents() -> Dict[str, Dict[str, Any]]:
         logger.warning(f"Directorio de agentes no encontrado: {_AGENTS_DIR}")
         return agents
 
-    for subdir in sorted(_AGENTS_DIR.iterdir()):
-        if not subdir.is_dir() or subdir.name == "base" or subdir.name.startswith("_"):
-            continue
+    for config_path in sorted(_AGENTS_DIR.glob("**/config.json")):
+        agent_dir = config_path.parent
+        agent_name = agent_dir.name
 
-        config_path = subdir / "config.json"
-        if not config_path.exists():
+        # Ignorar directorios internos
+        if agent_name.startswith("_"):
             continue
 
         try:
@@ -89,19 +91,19 @@ def _discover_agents() -> Dict[str, Dict[str, Any]]:
 
             # Validar contra schema Pydantic
             validated = AgentConfig(**raw_config)
-            _validated_configs[subdir.name] = validated
-            agents[subdir.name] = raw_config
+            _validated_configs[agent_name] = validated
+            agents[agent_name] = raw_config
             logger.debug(
-                f"Agent discovered: {subdir.name} "
+                f"Agent discovered: {agent_name} "
                 f"(product={validated.product}, countries={validated.get_country_codes()})"
             )
         except ValidationError as e:
             logger.error(
-                f"Config inválido para agente '{subdir.name}' "
+                f"Config inválido para agente '{agent_name}' "
                 f"({config_path}):\n{e}"
             )
         except (json.JSONDecodeError, OSError) as e:
-            logger.warning(f"Error cargando config de {subdir.name}: {e}")
+            logger.warning(f"Error cargando config de {agent_name}: {e}")
 
     return agents
 
